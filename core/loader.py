@@ -1,36 +1,45 @@
-# core/loader.py
 import sys
 import io
-from core.interfaces import BaseCipher
+import inspect
 
 def load_custom_cipher_from_text(code_string):
     """
-    Dynamically executes a string of Python code and returns the first class 
-    that looks like a Cipher.
+    Dynamically executes a string of Python code and returns a usable Cipher Object.
+    Now includes smart detection for common initialization errors.
     """
-    # 1. Create a restricted scope to run the code
     local_scope = {}
     
     try:
-        # 2. Execute the string as Python code
-        # Warning: exec() is dangerous in public web apps, but fine for local projects.
+        # 1. Execute the code string safely
         exec(code_string, globals(), local_scope)
         
-        # 3. Find the class that was defined in the code
+        # 2. Find the Class
         target_class = None
-        
         for name, obj in local_scope.items():
-            # Check if it's a class and has the required methods
             if isinstance(obj, type):
-                # Check for 'encrypt' and 'decrypt' methods
-                if hasattr(obj, 'encrypt') and hasattr(obj, 'decrypt'):
+                # Check if it has an encrypt method (our only strict requirement)
+                if hasattr(obj, 'encrypt'):
                     target_class = obj
                     break
         
-        if target_class:
-            return target_class() # Return an INSTANCE of the class
-        else:
-            raise ValueError("No valid Cipher class found. Did you define a class with encrypt/decrypt methods?")
+        if target_class is None:
+            raise ValueError("No class with an 'encrypt' method found. Please define a class.")
+
+        # 3. Intelligent Instantiation (The Fix for your Error)
+        try:
+            # Try to create an instance: cipher = MyCipher()
+            return target_class()
+        except TypeError as e:
+            # Check if the error is about missing arguments in __init__
+            if "__init__" in str(e) and "missing" in str(e):
+                raise ValueError(
+                    f"⚠️ Compatibility Error: Your class '{target_class.__name__}' requires arguments in `__init__`.\n\n"
+                    "👉 FIX: Remove the `__init__` method (or make it empty) and move your setup logic "
+                    "into the `encrypt(self, plaintext, key)` method."
+                )
+            # Re-raise other errors (like syntax errors)
+            raise e
             
     except Exception as e:
-        raise ValueError(f"Code Error: {e}")
+        # Pass the specific error message back to the UI
+        raise ValueError(f"{e}")
